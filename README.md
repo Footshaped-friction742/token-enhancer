@@ -1,125 +1,154 @@
-# Agent Cost Proxy
+# Token Enhancer
 
-A local proxy that slashes AI agent token costs by intercepting and cleaning data before it reaches your LLM.
+A local proxy that strips web pages down to clean text before they enter your AI agent's context window.
 
-**One fetch of Yahoo Finance: 704,415 tokens → 2,624 tokens. 99.6% reduction.**
+**One fetch of Yahoo Finance: 704,760 tokens → 2,625 tokens. 99.6% reduction.**
+
+No API key. No LLM. No GPU. Just Python.
 
 ## The Problem
 
-AI agents waste most of their token budget on data retrieval — loading raw HTML pages, parsing bloated API responses, and stuffing unstructured documents into the context window. This happens before any reasoning occurs.
+AI agents waste most of their token budget loading raw HTML pages into context. A single Yahoo Finance page is 704K tokens of navigation bars, ads, scripts, and junk. Your agent pays for all of it before any reasoning happens.
 
 ## The Solution
 
-Agent Cost Proxy sits between your agent and the internet. It intercepts data fetches, strips all noise, and delivers only clean signal to your LLM.
+Token Enhancer sits between your agent and the web. It fetches the page, strips the noise, caches the result, and returns only clean data.
 
 | Source | Raw Tokens | After Proxy | Reduction |
 |--------|-----------|-------------|-----------|
-| Yahoo Finance (AAPL) | 704,415 | 2,624 | **99.6%** |
-| Wikipedia article | 341,825 | 45,791 | **86.6%** |
-
-## Features
-
-**Layer 1 — Prompt Refiner** (opt-in)
-- Send a rough prompt, get back a cleaner version
-- Strips filler words and hedging while protecting entities, negations, and context references
-- You see both versions and decide which to use
-
-**Layer 2 — Data Proxy** (automatic)
-- Fetches any URL, strips HTML/JSON noise, returns clean text
-- Caches results to avoid redundant fetches
-- Handles HTML, JSON, and plain text responses
-- Batch endpoint for multiple URLs at once
+| Yahoo Finance (AAPL) | 704,760 | 2,625 | **99.6%** |
+| Wikipedia article | 154,440 | 19,479 | **87.4%** |
+| Hacker News | 8,662 | 859 | **90.1%** |
 
 ## Quick Start
-```bash
-git clone https://github.com/YOUR_USERNAME/agent-cost-proxy.git
-cd agent-cost-proxy
+```
+git clone https://github.com/Boof-Pack/token-enhancer.git
+cd token-enhancer
 chmod +x install.sh
 ./install.sh
 source .venv/bin/activate
-python3 proxy.py
+python3 test_all.py --live
 ```
 
 ## Usage
 
-### Fetch and clean a webpage
-```bash
+### As a standalone proxy
+```
+source .venv/bin/activate
+python3 proxy.py
+```
+
+Then in another terminal:
+```
 curl -s http://localhost:8080/fetch \
   -H "content-type: application/json" \
   -d '{"url": "https://finance.yahoo.com/quote/AAPL/"}' \
   | python3 -m json.tool
 ```
 
-### Refine a prompt (opt-in)
-```bash
-curl -s http://localhost:8080/refine \
-  -H "content-type: application/json" \
-  -d '{"text": "Hey could you please maybe help me analyze AAPL earnings compared to last quarter and what analysts are saying thanks"}' \
-  | python3 -m json.tool
+### As an MCP Server (Claude Desktop, Cursor, OpenClaw)
+
+This is the plug and play option. Your AI agent discovers the tools automatically and uses them on its own.
+
+Install the MCP dependency:
+```
+source .venv/bin/activate
+pip install mcp
 ```
 
-### Batch fetch multiple URLs
-```bash
-curl -s http://localhost:8080/fetch/batch \
-  -H "content-type: application/json" \
-  -d '{"urls": ["https://finance.yahoo.com/quote/AAPL/", "https://finance.yahoo.com/quote/MSFT/"]}' \
-  | python3 -m json.tool
+**Claude Desktop:** Add to your config file
+
+Mac: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+```json
+{
+  "mcpServers": {
+    "token-enhancer": {
+      "command": "python3",
+      "args": ["/FULL/PATH/TO/token-enhancer/mcp_server.py"]
+    }
+  }
+}
 ```
 
-### Check session stats
-```bash
-curl -s http://localhost:8080/stats | python3 -m json.tool
+Replace `/FULL/PATH/TO/` with the actual path to your clone.
+
+**Cursor:** Add to `.cursor/mcp.json` in your project:
+```json
+{
+  "mcpServers": {
+    "token-enhancer": {
+      "command": "python3",
+      "args": ["/FULL/PATH/TO/token-enhancer/mcp_server.py"]
+    }
+  }
+}
 ```
 
-## Run Tests
-```bash
-# Layer 1 only (offline)
-python3 test_all.py
+Once connected, your agent gets three tools:
 
-# Layer 1 + Layer 2 (needs internet)
-python3 test_all.py --live
+`fetch_clean` fetches any URL and returns clean text (86 to 99% smaller)
+
+`fetch_clean_batch` fetches multiple URLs at once
+
+`refine_prompt` optional prompt cleanup, shows both versions so you decide
+
+### As a LangChain Tool
+```python
+from langchain.tools import tool
+import requests
+
+@tool
+def fetch_clean(url: str) -> str:
+    """Fetch a URL and return clean text with HTML noise removed."""
+    r = requests.post("http://localhost:8080/fetch", json={"url": url})
+    return r.json()["content"]
 ```
 
-## API Endpoints
+Add `fetch_clean` to your agent's tool list. Start `python3 proxy.py` first.
+
+## Features
+
+**Data Proxy (Layer 2)**
+Fetches any URL, strips HTML/JSON noise, returns clean text. Caches results so repeat fetches are instant. Handles HTML, JSON, and plain text.
+
+**Prompt Refiner (Layer 1, opt in)**
+Strips filler words and hedging while protecting tickers, dates, money values, negations, and conversation references. You see both versions and choose.
+
+**MCP Server**
+Plug into Claude Desktop, Cursor, OpenClaw, or any MCP client. Agent discovers the tools and uses them automatically.
+
+## API Endpoints (proxy mode)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/fetch` | POST | Fetch URL, strip noise, return clean data |
 | `/fetch/batch` | POST | Fetch multiple URLs at once |
-| `/refine` | POST | Opt-in prompt refinement |
+| `/refine` | POST | Opt in prompt refinement |
 | `/stats` | GET | Session statistics |
-| `/` | GET | API info |
 
-## How It Works
+## Run Tests
 ```
-Your Agent
-    │
-    ▼
-localhost:8080 (Agent Cost Proxy)
-    │
-    ├── /refine  → strips filler, protects entities, you decide
-    ├── /fetch   → fetches URL, strips HTML noise, caches result
-    │
-    ▼
-Clean data (2-15% of original token count)
+python3 test_all.py           # Layer 1 only (offline)
+python3 test_all.py --live    # Layer 1 + Layer 2 (needs internet)
 ```
 
 ## Roadmap
 
 - [x] Layer 1: Prompt refiner
 - [x] Layer 2: Data proxy with caching
-- [ ] Browser fallback (Playwright) for sites that block bots
+- [x] MCP server integration
+- [x] LangChain tool example
+- [ ] Browser fallback (Playwright) for bot blocked sites
 - [ ] Authenticated session management
 - [ ] Layer 3: Output/history compression
-- [ ] CLI tool (`agent-proxy refine "your prompt"`)
+- [ ] CLI tool
 - [ ] Dashboard UI
-- [ ] OpenAI/Ollama proxy mode
 
 ## Requirements
 
-- Python 3.10+
-- No API keys needed
-- No GPU needed
+Python 3.10+. No API keys. No GPU.
 
 ## License
 
